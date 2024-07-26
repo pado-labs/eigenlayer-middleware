@@ -76,7 +76,7 @@ contract RegistryCoordinator is
      * @param _minimumStakes minimum stake weight to allow an operator to register
      * @param _strategyParams which Strategies/multipliers a quorum considers when calculating stake weight
      */
-    function initialize(
+    function _initialize(
         address _initialOwner,
         address _churnApprover,
         address _ejector,
@@ -85,7 +85,7 @@ contract RegistryCoordinator is
         OperatorSetParam[] memory _operatorSetParams,
         uint96[] memory _minimumStakes,
         IStakeRegistry.StrategyParams[][] memory _strategyParams
-    ) external initializer {
+    ) internal onlyInitializing {
         require(
             _operatorSetParams.length == _minimumStakes.length && _minimumStakes.length == _strategyParams.length,
             "RegistryCoordinator.initialize: input length mismatch"
