@@ -127,7 +127,7 @@ contract RegistryCoordinator is
         string calldata socket,
         IBLSApkRegistry.PubkeyRegistrationParams calldata params,
         SignatureWithSaltAndExpiry memory operatorSignature
-    ) external virtual onlyWhenNotPaused(PAUSED_REGISTER_OPERATOR) {
+    ) public virtual onlyWhenNotPaused(PAUSED_REGISTER_OPERATOR) {
         /**
          * If the operator has NEVER registered a pubkey before, use `params` to register
          * their pubkey in blsApkRegistry
