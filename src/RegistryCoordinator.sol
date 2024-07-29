@@ -76,7 +76,7 @@ contract RegistryCoordinator is
      * @param _minimumStakes minimum stake weight to allow an operator to register
      * @param _strategyParams which Strategies/multipliers a quorum considers when calculating stake weight
      */
-    function _initialize(
+    function __RegistryCoordinator_init(
         address _initialOwner,
         address _churnApprover,
         address _ejector,
