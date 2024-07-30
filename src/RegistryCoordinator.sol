@@ -40,6 +40,7 @@ contract RegistryCoordinator is
 {
     using BitmapUtils for *;
     using BN254 for BN254.G1Point;
+    address public workerMgtAddr;
 
     modifier onlyEjector {
         _checkEjector();
@@ -50,6 +51,11 @@ contract RegistryCoordinator is
     /// via `initialize` or `createQuorum`
     modifier quorumExists(uint8 quorumNumber) {
         _checkQuorumExists(quorumNumber);
+        _;
+    }
+    // only workerMgt can call this function
+    modifier onlyWorkerMgt{
+        require(msg.sender == workerMgtAddr, "Must WorkerMgt");
         _;
     }
 
@@ -76,7 +82,7 @@ contract RegistryCoordinator is
      * @param _minimumStakes minimum stake weight to allow an operator to register
      * @param _strategyParams which Strategies/multipliers a quorum considers when calculating stake weight
      */
-    function __RegistryCoordinator_init(
+    function initialize(
         address _initialOwner,
         address _churnApprover,
         address _ejector,
@@ -85,7 +91,7 @@ contract RegistryCoordinator is
         OperatorSetParam[] memory _operatorSetParams,
         uint96[] memory _minimumStakes,
         IStakeRegistry.StrategyParams[][] memory _strategyParams
-    ) internal onlyInitializing {
+    ) external initializer  {
         require(
             _operatorSetParams.length == _minimumStakes.length && _minimumStakes.length == _strategyParams.length,
             "RegistryCoordinator.initialize: input length mismatch"
@@ -113,6 +119,14 @@ contract RegistryCoordinator is
     *******************************************************************************/
 
     /**
+     * @notice Sets the address of the WorkerMgt contract
+     * @param _workerMgtAddr is the address of the WorkerMgt contract
+     */
+    function setWorkerMgtAddr(address _workerMgtAddr) external onlyOwner {
+        workerMgtAddr = _workerMgtAddr;
+    }
+
+    /**
      * @notice Registers msg.sender as an operator for one or more quorums. If any quorum exceeds its maximum
      * operator capacity after the operator is registered, this method will fail.
      * @param quorumNumbers is an ordered byte array containing the quorum numbers being registered for
@@ -127,7 +141,7 @@ contract RegistryCoordinator is
         string calldata socket,
         IBLSApkRegistry.PubkeyRegistrationParams calldata params,
         SignatureWithSaltAndExpiry memory operatorSignature
-    ) public virtual onlyWhenNotPaused(PAUSED_REGISTER_OPERATOR) {
+    ) public virtual onlyWorkerMgt onlyWhenNotPaused(PAUSED_REGISTER_OPERATOR) {
         /**
          * If the operator has NEVER registered a pubkey before, use `params` to register
          * their pubkey in blsApkRegistry
@@ -140,9 +154,9 @@ contract RegistryCoordinator is
         // Register the operator in each of the registry contracts and update the operator's
         // quorum bitmap and registration status
         uint32[] memory numOperatorsPerQuorum = _registerOperator({
-            operator: msg.sender, 
+            operator: msg.sender,
             operatorId: operatorId,
-            quorumNumbers: quorumNumbers, 
+            quorumNumbers: quorumNumbers,
             socket: socket,
             operatorSignature: operatorSignature
         }).numOperatorsPerQuorum;
@@ -158,79 +172,79 @@ contract RegistryCoordinator is
             );
         }
     }
-
-    /**
-     * @notice Registers msg.sender as an operator for one or more quorums. If any quorum reaches its maximum operator
-     * capacity, `operatorKickParams` is used to replace an old operator with the new one.
-     * @param quorumNumbers is an ordered byte array containing the quorum numbers being registered for
-     * @param params contains the G1 & G2 public keys of the operator, and a signature proving their ownership
-     * @param operatorKickParams used to determine which operator is removed to maintain quorum capacity as the
-     * operator registers for quorums
-     * @param churnApproverSignature is the signature of the churnApprover over the `operatorKickParams`
-     * @param operatorSignature is the signature of the operator used by the AVS to register the operator in the delegation manager
-     * @dev `params` is ignored if the caller has previously registered a public key
-     * @dev `operatorSignature` is ignored if the operator's status is already REGISTERED
-     */
-    function registerOperatorWithChurn(
-        bytes calldata quorumNumbers, 
-        string calldata socket,
-        IBLSApkRegistry.PubkeyRegistrationParams calldata params,
-        OperatorKickParam[] calldata operatorKickParams,
-        SignatureWithSaltAndExpiry memory churnApproverSignature,
-        SignatureWithSaltAndExpiry memory operatorSignature
-    ) public virtual onlyWhenNotPaused(PAUSED_REGISTER_OPERATOR) {
-        require(operatorKickParams.length == quorumNumbers.length, "RegistryCoordinator.registerOperatorWithChurn: input length mismatch");
-        
-        /**
-         * If the operator has NEVER registered a pubkey before, use `params` to register
-         * their pubkey in blsApkRegistry
-         *
-         * If the operator HAS registered a pubkey, `params` is ignored and the pubkey hash
-         * (operatorId) is fetched instead
-         */
-        bytes32 operatorId = _getOrCreateOperatorId(msg.sender, params);
-
-        // Verify the churn approver's signature for the registering operator and kick params
-        _verifyChurnApproverSignature({
-            registeringOperator: msg.sender,
-            registeringOperatorId: operatorId,
-            operatorKickParams: operatorKickParams,
-            churnApproverSignature: churnApproverSignature
-        });
-
-        // Register the operator in each of the registry contracts and update the operator's
-        // quorum bitmap and registration status
-        RegisterResults memory results = _registerOperator({
-            operator: msg.sender,
-            operatorId: operatorId,
-            quorumNumbers: quorumNumbers,
-            socket: socket,
-            operatorSignature: operatorSignature
-        });
-
-        // Check that each quorum's operator count is below the configured maximum. If the max
-        // is exceeded, use `operatorKickParams` to deregister an existing operator to make space
-        for (uint256 i = 0; i < quorumNumbers.length; i++) {
-            OperatorSetParam memory operatorSetParams = _quorumParams[uint8(quorumNumbers[i])];
-            
-            /**
-             * If the new operator count for any quorum exceeds the maximum, validate
-             * that churn can be performed, then deregister the specified operator
-             */
-            if (results.numOperatorsPerQuorum[i] > operatorSetParams.maxOperatorCount) {
-                _validateChurn({
-                    quorumNumber: uint8(quorumNumbers[i]),
-                    totalQuorumStake: results.totalStakes[i],
-                    newOperator: msg.sender,
-                    newOperatorStake: results.operatorStakes[i],
-                    kickParams: operatorKickParams[i],
-                    setParams: operatorSetParams
-                });
-
-                _deregisterOperator(operatorKickParams[i].operator, quorumNumbers[i:i+1]);
-            }
-        }
-    }
+//
+//    /**
+//     * @notice Registers msg.sender as an operator for one or more quorums. If any quorum reaches its maximum operator
+//     * capacity, `operatorKickParams` is used to replace an old operator with the new one.
+//     * @param quorumNumbers is an ordered byte array containing the quorum numbers being registered for
+//     * @param params contains the G1 & G2 public keys of the operator, and a signature proving their ownership
+//     * @param operatorKickParams used to determine which operator is removed to maintain quorum capacity as the
+//     * operator registers for quorums
+//     * @param churnApproverSignature is the signature of the churnApprover over the `operatorKickParams`
+//     * @param operatorSignature is the signature of the operator used by the AVS to register the operator in the delegation manager
+//     * @dev `params` is ignored if the caller has previously registered a public key
+//     * @dev `operatorSignature` is ignored if the operator's status is already REGISTERED
+//     */
+//    function registerOperatorWithChurn(
+//        bytes calldata quorumNumbers,
+//        string calldata socket,
+//        IBLSApkRegistry.PubkeyRegistrationParams calldata params,
+//        OperatorKickParam[] calldata operatorKickParams,
+//        SignatureWithSaltAndExpiry memory churnApproverSignature,
+//        SignatureWithSaltAndExpiry memory operatorSignature
+//    ) public virtual onlyWhenNotPaused(PAUSED_REGISTER_OPERATOR) {
+//        require(operatorKickParams.length == quorumNumbers.length, "RegistryCoordinator.registerOperatorWithChurn: input length mismatch");
+//
+//        /**
+//         * If the operator has NEVER registered a pubkey before, use `params` to register
+//         * their pubkey in blsApkRegistry
+//         *
+//         * If the operator HAS registered a pubkey, `params` is ignored and the pubkey hash
+//         * (operatorId) is fetched instead
+//         */
+//        bytes32 operatorId = _getOrCreateOperatorId(msg.sender, params);
+//
+//        // Verify the churn approver's signature for the registering operator and kick params
+//        _verifyChurnApproverSignature({
+//            registeringOperator: msg.sender,
+//            registeringOperatorId: operatorId,
+//            operatorKickParams: operatorKickParams,
+//            churnApproverSignature: churnApproverSignature
+//        });
+//
+//        // Register the operator in each of the registry contracts and update the operator's
+//        // quorum bitmap and registration status
+//        RegisterResults memory results = _registerOperator({
+//            operator: msg.sender,
+//            operatorId: operatorId,
+//            quorumNumbers: quorumNumbers,
+//            socket: socket,
+//            operatorSignature: operatorSignature
+//        });
+//
+//        // Check that each quorum's operator count is below the configured maximum. If the max
+//        // is exceeded, use `operatorKickParams` to deregister an existing operator to make space
+//        for (uint256 i = 0; i < quorumNumbers.length; i++) {
+//            OperatorSetParam memory operatorSetParams = _quorumParams[uint8(quorumNumbers[i])];
+//
+//            /**
+//             * If the new operator count for any quorum exceeds the maximum, validate
+//             * that churn can be performed, then deregister the specified operator
+//             */
+//            if (results.numOperatorsPerQuorum[i] > operatorSetParams.maxOperatorCount) {
+//                _validateChurn({
+//                    quorumNumber: uint8(quorumNumbers[i]),
+//                    totalQuorumStake: results.totalStakes[i],
+//                    newOperator: msg.sender,
+//                    newOperatorStake: results.operatorStakes[i],
+//                    kickParams: operatorKickParams[i],
+//                    setParams: operatorSetParams
+//                });
+//
+//                _deregisterOperator(operatorKickParams[i].operator, quorumNumbers[i:i+1]);
+//            }
+//        }
+//    }
 
     /**
      * @notice Deregisters the caller from one or more quorums
@@ -240,7 +254,7 @@ contract RegistryCoordinator is
         bytes calldata quorumNumbers
     ) external onlyWhenNotPaused(PAUSED_DEREGISTER_OPERATOR) {
         _deregisterOperator({
-            operator: msg.sender, 
+            operator: msg.sender,
             quorumNumbers: quorumNumbers
         });
     }
@@ -310,10 +324,10 @@ contract RegistryCoordinator is
             // ... then, update their stakes
             for (uint256 j = 0; j < currQuorumOperators.length; ++j) {
                 address operator = currQuorumOperators[j];
-                
+
                 OperatorInfo memory operatorInfo = _operatorInfo[operator];
                 bytes32 operatorId = operatorInfo.operatorId;
-                
+
                 {
                     uint192 currentBitmap = _currentOperatorBitmap(operatorId);
                     // Check that the operator is registered
@@ -327,7 +341,7 @@ contract RegistryCoordinator is
                         "RegistryCoordinator.updateOperatorsForQuorum: operators array must be sorted in ascending address order"
                     );
                 }
-                
+
                 // Update the operator
                 _updateOperator(operator, operatorInfo, quorumNumbers[i:i+1]);
                 prevOperatorAddress = operator;
@@ -359,7 +373,7 @@ contract RegistryCoordinator is
      * @dev possible race condition if prior to being ejected for a set of quorums the operator self deregisters from a subset
      */
     function ejectOperator(
-        address operator, 
+        address operator,
         bytes calldata quorumNumbers
     ) external onlyEjector {
         lastEjectionTimestamp[operator] = block.timestamp;
@@ -369,12 +383,12 @@ contract RegistryCoordinator is
         uint192 quorumsToRemove = uint192(BitmapUtils.orderedBytesArrayToBitmap(quorumNumbers, quorumCount));
         uint192 currentBitmap = _currentOperatorBitmap(operatorId);
         if(
-            operatorInfo.status == OperatorStatus.REGISTERED && 
+            operatorInfo.status == OperatorStatus.REGISTERED &&
             !quorumsToRemove.isEmpty() &&
-            quorumsToRemove.isSubsetOf(currentBitmap) 
+            quorumsToRemove.isSubsetOf(currentBitmap)
         ){
             _deregisterOperator({
-                operator: operator, 
+                operator: operator,
                 quorumNumbers: quorumNumbers
             });
         }
@@ -408,7 +422,7 @@ contract RegistryCoordinator is
      * @dev only callable by the owner
      */
     function setOperatorSetParams(
-        uint8 quorumNumber, 
+        uint8 quorumNumber,
         OperatorSetParam memory operatorSetParams
     ) external onlyOwner quorumExists(quorumNumber) {
         _setOperatorSetParams(quorumNumber, operatorSetParams);
@@ -458,7 +472,7 @@ contract RegistryCoordinator is
      * operator's quorum bitmap, socket, and status, then registers them with each registry.
      */
     function _registerOperator(
-        address operator, 
+        address operator,
         bytes32 operatorId,
         bytes calldata quorumNumbers,
         string memory socket,
@@ -507,7 +521,7 @@ contract RegistryCoordinator is
 
         // Register the operator with the BLSApkRegistry, StakeRegistry, and IndexRegistry
         blsApkRegistry.registerOperator(operator, quorumNumbers);
-        (results.operatorStakes, results.totalStakes) = 
+        (results.operatorStakes, results.totalStakes) =
             stakeRegistry.registerOperator(operator, operatorId, quorumNumbers);
         results.numOperatorsPerQuorum = indexRegistry.registerOperator(operatorId, quorumNumbers);
 
@@ -529,7 +543,7 @@ contract RegistryCoordinator is
      */
     function _checkQuorumExists(uint8 quorumNumber) internal view {
         require(
-            quorumNumber < quorumCount, 
+            quorumNumber < quorumCount,
             "RegistryCoordinator.quorumExists: quorum does not exist"
         );
     }
@@ -572,11 +586,11 @@ contract RegistryCoordinator is
      * mentioned above
      */
     function _validateChurn(
-        uint8 quorumNumber, 
+        uint8 quorumNumber,
         uint96 totalQuorumStake,
-        address newOperator, 
+        address newOperator,
         uint96 newOperatorStake,
-        OperatorKickParam memory kickParams, 
+        OperatorKickParam memory kickParams,
         OperatorSetParam memory setParams
     ) internal view {
         address operatorToKick = kickParams.operator;
@@ -602,14 +616,14 @@ contract RegistryCoordinator is
      * the operator with the BLSApkRegistry, IndexRegistry, and StakeRegistry
      */
     function _deregisterOperator(
-        address operator, 
+        address operator,
         bytes memory quorumNumbers
     ) internal virtual {
         // Fetch the operator's info and ensure they are registered
         OperatorInfo storage operatorInfo = _operatorInfo[operator];
         bytes32 operatorId = operatorInfo.operatorId;
         require(operatorInfo.status == OperatorStatus.REGISTERED, "RegistryCoordinator._deregisterOperator: operator is not registered");
-        
+
         /**
          * Get bitmap of quorums to deregister from and operator's current bitmap. Validate that:
          * - we're trying to deregister from at least 1 quorum
@@ -664,7 +678,7 @@ contract RegistryCoordinator is
             _deregisterOperator({
                 operator: operator,
                 quorumNumbers: BitmapUtils.bitmapToBytesArray(quorumsToRemove)
-            });    
+            });
         }
     }
 
@@ -685,26 +699,26 @@ contract RegistryCoordinator is
     }
 
     /// @notice verifies churnApprover's signature on operator churn approval and increments the churnApprover nonce
-    function _verifyChurnApproverSignature(
-        address registeringOperator,
-        bytes32 registeringOperatorId, 
-        OperatorKickParam[] memory operatorKickParams, 
-        SignatureWithSaltAndExpiry memory churnApproverSignature
-    ) internal {
-        // make sure the salt hasn't been used already
-        require(!isChurnApproverSaltUsed[churnApproverSignature.salt], "RegistryCoordinator._verifyChurnApproverSignature: churnApprover salt already used");
-        require(churnApproverSignature.expiry >= block.timestamp, "RegistryCoordinator._verifyChurnApproverSignature: churnApprover signature expired");   
-
-        // set salt used to true
-        isChurnApproverSaltUsed[churnApproverSignature.salt] = true;    
-
-        // check the churnApprover's signature 
-        EIP1271SignatureUtils.checkSignature_EIP1271(
-            churnApprover, 
-            calculateOperatorChurnApprovalDigestHash(registeringOperator, registeringOperatorId, operatorKickParams, churnApproverSignature.salt, churnApproverSignature.expiry), 
-            churnApproverSignature.signature
-        );
-    }
+//    function _verifyChurnApproverSignature(
+//        address registeringOperator,
+//        bytes32 registeringOperatorId,
+//        OperatorKickParam[] memory operatorKickParams,
+//        SignatureWithSaltAndExpiry memory churnApproverSignature
+//    ) internal {
+//        // make sure the salt hasn't been used already
+//        require(!isChurnApproverSaltUsed[churnApproverSignature.salt], "RegistryCoordinator._verifyChurnApproverSignature: churnApprover salt already used");
+//        require(churnApproverSignature.expiry >= block.timestamp, "RegistryCoordinator._verifyChurnApproverSignature: churnApprover signature expired");
+//
+//        // set salt used to true
+//        isChurnApproverSaltUsed[churnApproverSignature.salt] = true;
+//
+//        // check the churnApprover's signature
+//        EIP1271SignatureUtils.checkSignature_EIP1271(
+//            churnApprover,
+//            calculateOperatorChurnApprovalDigestHash(registeringOperator, registeringOperatorId, operatorKickParams, churnApproverSignature.salt, churnApproverSignature.expiry),
+//            churnApproverSignature.signature
+//        );
+//    }
 
     /**
      * @notice Creates a quorum and initializes it in each registry contract
@@ -723,7 +737,7 @@ contract RegistryCoordinator is
         uint8 prevQuorumCount = quorumCount;
         require(prevQuorumCount < MAX_QUORUM_COUNT, "RegistryCoordinator.createQuorum: max quorums reached");
         quorumCount = prevQuorumCount + 1;
-        
+
         // The previous count is the new quorum's number
         uint8 quorumNumber = prevQuorumCount;
 
@@ -787,7 +801,7 @@ contract RegistryCoordinator is
      * @dev This function is designed to find proper inputs to the `getQuorumBitmapAtBlockNumberByIndex` function
      */
     function _getQuorumBitmapIndexAtBlockNumber(
-        uint32 blockNumber, 
+        uint32 blockNumber,
         bytes32 operatorId
     ) internal view returns (uint32 index) {
         uint256 length = _operatorBitmapHistory[operatorId].length;
@@ -811,7 +825,7 @@ contract RegistryCoordinator is
         _quorumParams[quorumNumber] = operatorSetParams;
         emit OperatorSetParamsUpdated(quorumNumber, operatorSetParams);
     }
-    
+
     function _setChurnApprover(address newChurnApprover) internal {
         emit ChurnApproverUpdated(churnApprover, newChurnApprover);
         churnApprover = newChurnApprover;
@@ -857,7 +871,7 @@ contract RegistryCoordinator is
      * @dev This function is designed to find proper inputs to the `getQuorumBitmapAtBlockNumberByIndex` function
      */
     function getQuorumBitmapIndicesAtBlockNumber(
-        uint32 blockNumber, 
+        uint32 blockNumber,
         bytes32[] memory operatorIds
     ) external view returns (uint32[] memory) {
         uint32[] memory indices = new uint32[](operatorIds.length);
@@ -872,21 +886,21 @@ contract RegistryCoordinator is
      * reverting if `index` is incorrect
      * @dev This function is meant to be used in concert with `getQuorumBitmapIndicesAtBlockNumber`, which
      * helps off-chain processes to fetch the correct `index` input
-     */ 
+     */
     function getQuorumBitmapAtBlockNumberByIndex(
-        bytes32 operatorId, 
-        uint32 blockNumber, 
+        bytes32 operatorId,
+        uint32 blockNumber,
         uint256 index
     ) external view returns (uint192) {
         QuorumBitmapUpdate memory quorumBitmapUpdate = _operatorBitmapHistory[operatorId][index];
-        
+
         /**
          * Validate that the update is valid for the given blockNumber:
          * - blockNumber should be >= the update block number
          * - the next update block number should be either 0 or strictly greater than blockNumber
          */
         require(
-            blockNumber >= quorumBitmapUpdate.updateBlockNumber, 
+            blockNumber >= quorumBitmapUpdate.updateBlockNumber,
             "RegistryCoordinator.getQuorumBitmapAtBlockNumberByIndex: quorumBitmapUpdate is from after blockNumber"
         );
         require(
@@ -899,7 +913,7 @@ contract RegistryCoordinator is
 
     /// @notice Returns the `index`th entry in the operator with `operatorId`'s bitmap history
     function getQuorumBitmapUpdateByIndex(
-        bytes32 operatorId, 
+        bytes32 operatorId,
         uint256 index
     ) external view returns (QuorumBitmapUpdate memory) {
         return _operatorBitmapHistory[operatorId][index];
