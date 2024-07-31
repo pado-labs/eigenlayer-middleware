@@ -29,18 +29,17 @@ import {RegistryCoordinatorStorage} from "./RegistryCoordinatorStorage.sol";
  * 
  * @author Layr Labs, Inc.
  */
-contract RegistryCoordinator is 
-    EIP712, 
-    Initializable, 
-    Pausable,
-    OwnableUpgradeable,
-    RegistryCoordinatorStorage, 
-    ISocketUpdater, 
-    ISignatureUtils
+contract RegistryCoordinator is
+EIP712,
+Initializable,
+Pausable,
+OwnableUpgradeable,
+RegistryCoordinatorStorage,
+ISocketUpdater,
+ISignatureUtils
 {
     using BitmapUtils for *;
     using BN254 for BN254.G1Point;
-    address public workerMgtAddr;
 
     modifier onlyEjector {
         _checkEjector();
@@ -53,20 +52,15 @@ contract RegistryCoordinator is
         _checkQuorumExists(quorumNumber);
         _;
     }
-    // only workerMgt can call this function
-    modifier onlyWorkerMgt{
-        require(msg.sender == workerMgtAddr, "Must WorkerMgt");
-        _;
-    }
 
     constructor(
         IServiceManager _serviceManager,
         IStakeRegistry _stakeRegistry,
         IBLSApkRegistry _blsApkRegistry,
         IIndexRegistry _indexRegistry
-    ) 
-        RegistryCoordinatorStorage(_serviceManager, _stakeRegistry, _blsApkRegistry, _indexRegistry)
-        EIP712("AVSRegistryCoordinator", "v0.0.1") 
+    )
+    RegistryCoordinatorStorage(_serviceManager, _stakeRegistry, _blsApkRegistry, _indexRegistry)
+    EIP712("AVSRegistryCoordinator", "v0.0.1")
     {
         _disableInitializers();
     }
@@ -82,7 +76,7 @@ contract RegistryCoordinator is
      * @param _minimumStakes minimum stake weight to allow an operator to register
      * @param _strategyParams which Strategies/multipliers a quorum considers when calculating stake weight
      */
-    function initialize(
+    function __RegistryCoordinator_init(
         address _initialOwner,
         address _churnApprover,
         address _ejector,
@@ -91,12 +85,12 @@ contract RegistryCoordinator is
         OperatorSetParam[] memory _operatorSetParams,
         uint96[] memory _minimumStakes,
         IStakeRegistry.StrategyParams[][] memory _strategyParams
-    ) external initializer  {
+    ) internal onlyInitializing {
         require(
             _operatorSetParams.length == _minimumStakes.length && _minimumStakes.length == _strategyParams.length,
             "RegistryCoordinator.initialize: input length mismatch"
         );
-        
+
         // Initialize roles
         _transferOwnership(_initialOwner);
         _initializePauser(_pauserRegistry, _initialPausedStatus);
@@ -115,16 +109,8 @@ contract RegistryCoordinator is
     }
 
     /*******************************************************************************
-                            EXTERNAL FUNCTIONS 
+                            EXTERNAL FUNCTIONS
     *******************************************************************************/
-
-    /**
-     * @notice Sets the address of the WorkerMgt contract
-     * @param _workerMgtAddr is the address of the WorkerMgt contract
-     */
-    function setWorkerMgtAddr(address _workerMgtAddr) external onlyOwner {
-        workerMgtAddr = _workerMgtAddr;
-    }
 
     /**
      * @notice Registers msg.sender as an operator for one or more quorums. If any quorum exceeds its maximum
@@ -141,7 +127,7 @@ contract RegistryCoordinator is
         string calldata socket,
         IBLSApkRegistry.PubkeyRegistrationParams calldata params,
         SignatureWithSaltAndExpiry memory operatorSignature
-    ) public virtual onlyWorkerMgt onlyWhenNotPaused(PAUSED_REGISTER_OPERATOR) {
+    ) public virtual onlyWhenNotPaused(PAUSED_REGISTER_OPERATOR) {
         /**
          * If the operator has NEVER registered a pubkey before, use `params` to register
          * their pubkey in blsApkRegistry
@@ -172,19 +158,19 @@ contract RegistryCoordinator is
             );
         }
     }
-//
-//    /**
-//     * @notice Registers msg.sender as an operator for one or more quorums. If any quorum reaches its maximum operator
-//     * capacity, `operatorKickParams` is used to replace an old operator with the new one.
-//     * @param quorumNumbers is an ordered byte array containing the quorum numbers being registered for
-//     * @param params contains the G1 & G2 public keys of the operator, and a signature proving their ownership
-//     * @param operatorKickParams used to determine which operator is removed to maintain quorum capacity as the
-//     * operator registers for quorums
-//     * @param churnApproverSignature is the signature of the churnApprover over the `operatorKickParams`
-//     * @param operatorSignature is the signature of the operator used by the AVS to register the operator in the delegation manager
-//     * @dev `params` is ignored if the caller has previously registered a public key
-//     * @dev `operatorSignature` is ignored if the operator's status is already REGISTERED
-//     */
+
+    /**
+     * @notice Registers msg.sender as an operator for one or more quorums. If any quorum reaches its maximum operator
+     * capacity, `operatorKickParams` is used to replace an old operator with the new one.
+     * @param quorumNumbers is an ordered byte array containing the quorum numbers being registered for
+     * @param params contains the G1 & G2 public keys of the operator, and a signature proving their ownership
+     * @param operatorKickParams used to determine which operator is removed to maintain quorum capacity as the
+     * operator registers for quorums
+     * @param churnApproverSignature is the signature of the churnApprover over the `operatorKickParams`
+     * @param operatorSignature is the signature of the operator used by the AVS to register the operator in the delegation manager
+     * @dev `params` is ignored if the caller has previously registered a public key
+     * @dev `operatorSignature` is ignored if the operator's status is already REGISTERED
+     */
 //    function registerOperatorWithChurn(
 //        bytes calldata quorumNumbers,
 //        string calldata socket,
@@ -289,14 +275,14 @@ contract RegistryCoordinator is
      * @param quorumNumbers is an ordered byte array containing the quorum numbers being updated
      * @dev invariant: Each list of `operatorsPerQuorum` MUST be a sorted version of `IndexRegistry.getOperatorListAtBlockNumber`
      * for the corresponding quorum.
-     * @dev note on race condition: if an operator registers/deregisters for any quorum in `quorumNumbers` after a txn to 
+     * @dev note on race condition: if an operator registers/deregisters for any quorum in `quorumNumbers` after a txn to
      * this method is broadcast (but before it is executed), the method will fail
      */
     function updateOperatorsForQuorum(
         address[][] calldata operatorsPerQuorum,
         bytes calldata quorumNumbers
     ) external onlyWhenNotPaused(PAUSED_UPDATE_OPERATOR) {
-        // Input validation 
+        // Input validation
         // - all quorums should exist (checked against `quorumCount` in orderedBytesArrayToBitmap)
         // - there should be no duplicates in `quorumNumbers`
         // - there should be one list of operators per quorum
@@ -448,7 +434,7 @@ contract RegistryCoordinator is
     }
 
     /**
-     * @notice Sets the ejection cooldown, which is the time an operator must wait in 
+     * @notice Sets the ejection cooldown, which is the time an operator must wait in
      * seconds afer ejection before registering for any quorum
      * @param _ejectionCooldown the new ejection cooldown in seconds
      * @dev only callable by the owner
@@ -467,7 +453,7 @@ contract RegistryCoordinator is
         uint96[] totalStakes;
     }
 
-    /** 
+    /**
      * @notice Register the operator for one or more quorums. This method updates the
      * operator's quorum bitmap, socket, and status, then registers them with each registry.
      */
@@ -522,7 +508,7 @@ contract RegistryCoordinator is
         // Register the operator with the BLSApkRegistry, StakeRegistry, and IndexRegistry
         blsApkRegistry.registerOperator(operator, quorumNumbers);
         (results.operatorStakes, results.totalStakes) =
-            stakeRegistry.registerOperator(operator, operatorId, quorumNumbers);
+        stakeRegistry.registerOperator(operator, operatorId, quorumNumbers);
         results.numOperatorsPerQuorum = indexRegistry.registerOperator(operatorId, quorumNumbers);
 
         return results;
@@ -585,30 +571,30 @@ contract RegistryCoordinator is
      * @param setParams config for this quorum containing `kickBIPsX` stake proportions
      * mentioned above
      */
-    function _validateChurn(
-        uint8 quorumNumber,
-        uint96 totalQuorumStake,
-        address newOperator,
-        uint96 newOperatorStake,
-        OperatorKickParam memory kickParams,
-        OperatorSetParam memory setParams
-    ) internal view {
-        address operatorToKick = kickParams.operator;
-        bytes32 idToKick = _operatorInfo[operatorToKick].operatorId;
-        require(newOperator != operatorToKick, "RegistryCoordinator._validateChurn: cannot churn self");
-        require(kickParams.quorumNumber == quorumNumber, "RegistryCoordinator._validateChurn: quorumNumber not the same as signed");
-
-        // Get the target operator's stake and check that it is below the kick thresholds
-        uint96 operatorToKickStake = stakeRegistry.getCurrentStake(idToKick, quorumNumber);
-        require(
-            newOperatorStake > _individualKickThreshold(operatorToKickStake, setParams),
-            "RegistryCoordinator._validateChurn: incoming operator has insufficient stake for churn"
-        );
-        require(
-            operatorToKickStake < _totalKickThreshold(totalQuorumStake, setParams),
-            "RegistryCoordinator._validateChurn: cannot kick operator with more than kickBIPsOfTotalStake"
-        );
-    }
+//    function _validateChurn(
+//        uint8 quorumNumber,
+//        uint96 totalQuorumStake,
+//        address newOperator,
+//        uint96 newOperatorStake,
+//        OperatorKickParam memory kickParams,
+//        OperatorSetParam memory setParams
+//    ) internal view {
+//        address operatorToKick = kickParams.operator;
+//        bytes32 idToKick = _operatorInfo[operatorToKick].operatorId;
+//        require(newOperator != operatorToKick, "RegistryCoordinator._validateChurn: cannot churn self");
+//        require(kickParams.quorumNumber == quorumNumber, "RegistryCoordinator._validateChurn: quorumNumber not the same as signed");
+//
+//        // Get the target operator's stake and check that it is below the kick thresholds
+//        uint96 operatorToKickStake = stakeRegistry.getCurrentStake(idToKick, quorumNumber);
+//        require(
+//            newOperatorStake > _individualKickThreshold(operatorToKickStake, setParams),
+//            "RegistryCoordinator._validateChurn: incoming operator has insufficient stake for churn"
+//        );
+//        require(
+//            operatorToKickStake < _totalKickThreshold(totalQuorumStake, setParams),
+//            "RegistryCoordinator._validateChurn: cannot kick operator with more than kickBIPsOfTotalStake"
+//        );
+//    }
 
     /**
      * @dev Deregister the operator from one or more quorums
@@ -643,7 +629,7 @@ contract RegistryCoordinator is
             newBitmap: newBitmap
         });
 
-        // If the operator is no longer registered for any quorums, update their status and deregister 
+        // If the operator is no longer registered for any quorums, update their status and deregister
         // them from the AVS via the EigenLayer core contracts
         if (newBitmap.isEmpty()) {
             operatorInfo.status = OperatorStatus.DEREGISTERED;
@@ -966,10 +952,10 @@ contract RegistryCoordinator is
 
     /// @dev need to override function here since its defined in both these contracts
     function owner()
-        public
-        view
-        override(OwnableUpgradeable, IRegistryCoordinator)
-        returns (address)
+    public
+    view
+    override(OwnableUpgradeable, IRegistryCoordinator)
+    returns (address)
     {
         return OwnableUpgradeable.owner();
     }
