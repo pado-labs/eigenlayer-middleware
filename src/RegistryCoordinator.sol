@@ -123,6 +123,7 @@ ISignatureUtils
      * @dev `operatorSignature` is ignored if the operator's status is already REGISTERED
      */
     function registerOperator(
+        address operatorAddr,
         bytes calldata quorumNumbers,
         string calldata socket,
         IBLSApkRegistry.PubkeyRegistrationParams calldata params,
@@ -135,12 +136,12 @@ ISignatureUtils
          * If the operator HAS registered a pubkey, `params` is ignored and the pubkey hash
          * (operatorId) is fetched instead
          */
-        bytes32 operatorId = _getOrCreateOperatorId(msg.sender, params);
+        bytes32 operatorId = _getOrCreateOperatorId(operatorAddr, params);
 
         // Register the operator in each of the registry contracts and update the operator's
         // quorum bitmap and registration status
         uint32[] memory numOperatorsPerQuorum = _registerOperator({
-            operator: msg.sender,
+            operator: operatorAddr,
             operatorId: operatorId,
             quorumNumbers: quorumNumbers,
             socket: socket,
@@ -237,10 +238,11 @@ ISignatureUtils
      * @param quorumNumbers is an ordered byte array containing the quorum numbers being deregistered from
      */
     function deregisterOperator(
+        address operatorAddr,
         bytes calldata quorumNumbers
-    ) external onlyWhenNotPaused(PAUSED_DEREGISTER_OPERATOR) {
+    ) public virtual onlyWhenNotPaused(PAUSED_DEREGISTER_OPERATOR) {
         _deregisterOperator({
-            operator: msg.sender,
+            operator: operatorAddr,
             quorumNumbers: quorumNumbers
         });
     }
