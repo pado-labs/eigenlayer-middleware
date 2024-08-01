@@ -112,6 +112,15 @@ ISignatureUtils
                             EXTERNAL FUNCTIONS
     *******************************************************************************/
 
+    function registerOperator(
+        bytes calldata quorumNumbers,
+        string calldata socket,
+        IBLSApkRegistry.PubkeyRegistrationParams calldata params,
+        SignatureWithSaltAndExpiry memory operatorSignature
+    ) public virtual onlyWhenNotPaused(PAUSED_REGISTER_OPERATOR) {
+        registerOperator(msg.sender, quorumNumbers, socket, params, operatorSignature);
+    }
+
     /**
      * @notice Registers msg.sender as an operator for one or more quorums. If any quorum exceeds its maximum
      * operator capacity after the operator is registered, this method will fail.
@@ -128,7 +137,7 @@ ISignatureUtils
         string calldata socket,
         IBLSApkRegistry.PubkeyRegistrationParams calldata params,
         SignatureWithSaltAndExpiry memory operatorSignature
-    ) internal virtual onlyWhenNotPaused(PAUSED_REGISTER_OPERATOR) {
+    ) public virtual onlyWhenNotPaused(PAUSED_REGISTER_OPERATOR) {
         /**
          * If the operator has NEVER registered a pubkey before, use `params` to register
          * their pubkey in blsApkRegistry
@@ -233,6 +242,13 @@ ISignatureUtils
 //        }
 //    }
 
+
+    function deregisterOperator(
+        bytes calldata quorumNumbers
+    ) public virtual onlyWhenNotPaused(PAUSED_DEREGISTER_OPERATOR) {
+        deregisterOperator(msg.sender, quorumNumbers);
+    }
+
     /**
      * @notice Deregisters the caller from one or more quorums
      * @param quorumNumbers is an ordered byte array containing the quorum numbers being deregistered from
@@ -240,7 +256,7 @@ ISignatureUtils
     function deregisterOperator(
         address operatorAddr,
         bytes calldata quorumNumbers
-    ) internal virtual onlyWhenNotPaused(PAUSED_DEREGISTER_OPERATOR) {
+    ) public virtual onlyWhenNotPaused(PAUSED_DEREGISTER_OPERATOR) {
         _deregisterOperator({
             operator: operatorAddr,
             quorumNumbers: quorumNumbers
@@ -331,7 +347,7 @@ ISignatureUtils
                 }
 
                 // Update the operator
-                _updateOperator(operator, operatorInfo, quorumNumbers[i:i+1]);
+                _updateOperator(operator, operatorInfo, quorumNumbers[i : i + 1]);
                 prevOperatorAddress = operator;
             }
 
@@ -370,11 +386,11 @@ ISignatureUtils
         bytes32 operatorId = operatorInfo.operatorId;
         uint192 quorumsToRemove = uint192(BitmapUtils.orderedBytesArrayToBitmap(quorumNumbers, quorumCount));
         uint192 currentBitmap = _currentOperatorBitmap(operatorId);
-        if(
+        if (
             operatorInfo.status == OperatorStatus.REGISTERED &&
             !quorumsToRemove.isEmpty() &&
             quorumsToRemove.isSubsetOf(currentBitmap)
-        ){
+        ) {
             _deregisterOperator({
                 operator: operator,
                 quorumNumbers: quorumNumbers
