@@ -112,6 +112,16 @@ ISignatureUtils
                             EXTERNAL FUNCTIONS
     *******************************************************************************/
 
+    /**
+ * @notice Registers msg.sender as an operator for one or more quorums. If any quorum exceeds its maximum
+     * operator capacity after the operator is registered, this method will fail.
+     * @param quorumNumbers is an ordered byte array containing the quorum numbers being registered for
+     * @param socket is the socket of the operator (typically an IP address)
+     * @param params contains the G1 & G2 public keys of the operator, and a signature proving their ownership
+     * @param operatorSignature is the signature of the operator used by the AVS to register the operator in the delegation manager
+     * @dev `params` is ignored if the caller has previously registered a public key
+     * @dev `operatorSignature` is ignored if the operator's status is already REGISTERED
+     */
     function registerOperator(
         bytes calldata quorumNumbers,
         string calldata socket,
@@ -124,6 +134,7 @@ ISignatureUtils
     /**
      * @notice Registers msg.sender as an operator for one or more quorums. If any quorum exceeds its maximum
      * operator capacity after the operator is registered, this method will fail.
+     * @param operatorAddr is the address of operator
      * @param quorumNumbers is an ordered byte array containing the quorum numbers being registered for
      * @param socket is the socket of the operator (typically an IP address)
      * @param params contains the G1 & G2 public keys of the operator, and a signature proving their ownership
@@ -243,6 +254,10 @@ ISignatureUtils
 //    }
 
 
+    /**
+     * @notice Deregisters the caller from one or more quorums
+     * @param quorumNumbers is an ordered byte array containing the quorum numbers being deregistered from
+     */
     function deregisterOperator(
         bytes calldata quorumNumbers
     ) public virtual onlyWhenNotPaused(PAUSED_DEREGISTER_OPERATOR) {
@@ -251,6 +266,7 @@ ISignatureUtils
 
     /**
      * @notice Deregisters the caller from one or more quorums
+     * @param operatorAddr is the address of operator
      * @param quorumNumbers is an ordered byte array containing the quorum numbers being deregistered from
      */
     function deregisterOperator(
