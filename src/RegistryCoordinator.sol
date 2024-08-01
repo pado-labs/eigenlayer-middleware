@@ -128,7 +128,7 @@ ISignatureUtils
         string calldata socket,
         IBLSApkRegistry.PubkeyRegistrationParams calldata params,
         SignatureWithSaltAndExpiry memory operatorSignature
-    ) public virtual onlyWhenNotPaused(PAUSED_REGISTER_OPERATOR) {
+    ) internal virtual onlyWhenNotPaused(PAUSED_REGISTER_OPERATOR) {
         /**
          * If the operator has NEVER registered a pubkey before, use `params` to register
          * their pubkey in blsApkRegistry
@@ -240,7 +240,7 @@ ISignatureUtils
     function deregisterOperator(
         address operatorAddr,
         bytes calldata quorumNumbers
-    ) public virtual onlyWhenNotPaused(PAUSED_DEREGISTER_OPERATOR) {
+    ) internal virtual onlyWhenNotPaused(PAUSED_DEREGISTER_OPERATOR) {
         _deregisterOperator({
             operator: operatorAddr,
             quorumNumbers: quorumNumbers
