@@ -254,15 +254,15 @@ ISignatureUtils
 //    }
 
 
-    /**
-     * @notice Deregisters the caller from one or more quorums
-     * @param quorumNumbers is an ordered byte array containing the quorum numbers being deregistered from
-     */
-    function deregisterOperator(
-        bytes calldata quorumNumbers
-    ) public virtual onlyWhenNotPaused(PAUSED_DEREGISTER_OPERATOR) {
-        deregisterOperator(msg.sender, quorumNumbers);
-    }
+//    /**
+//     * @notice Deregisters the caller from one or more quorums
+//     * @param quorumNumbers is an ordered byte array containing the quorum numbers being deregistered from
+//     */
+//    function deregisterOperator(
+//        bytes calldata quorumNumbers
+//    ) public virtual onlyWhenNotPaused(PAUSED_DEREGISTER_OPERATOR) {
+//        deregisterOperator(msg.sender, quorumNumbers);
+//    }
 
     /**
      * @notice Deregisters the caller from one or more quorums
